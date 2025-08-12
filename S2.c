@@ -13,10 +13,19 @@
 #include <sys/stat.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <dirent.h>
+#include <sys/types.h>
 
 #define S2_PORT 6202
 #define BACKLOG 16
 #define BUFSZ   4096
+
+
+static int cmp_cstr(const void *a, const void *b){
+    const char *const *sa = (const char *const *)a;
+    const char *const *sb = (const char *const *)b;
+    return strcmp(*sa, *sb);
+}
 
 // >>> adjust if needed
 static const char *ROOT = "/home/azeem7/S2";
@@ -129,6 +138,32 @@ static void handle_client(int csd){
             while((r=read(fd,buf,sizeof(buf)))>0) if(write_n(csd,buf,(size_t)r)!=r) break;
             close(fd); unlink(tarpath);
         }
+          /* ---- LIST <dest> : return sorted names with this server's extension ---- */
+else if (strncmp(line, "LIST ", 5) == 0) {
+    char dest[1024];
+    if (sscanf(line+5, "%1023s", dest) != 1) { dprintf(csd,"ERR bad LIST\n"); continue; }
+    if (strstr(dest, "..")) { dprintf(csd,"ERR badpath\n"); continue; }
+
+    char dir[2048];
+    if (dest[0]=='/') snprintf(dir, sizeof(dir), "%s%s", ROOT, dest);
+    else              snprintf(dir, sizeof(dir), "%s/%s", ROOT, dest);
+
+    DIR *dp = opendir(dir);
+    if (!dp) { dprintf(csd,"OK 0\n"); continue; }
+
+    char *names[4096]; int n=0;
+    struct dirent *de;
+    while ((de=readdir(dp))) {
+        if (de->d_name[0]=='.') continue;
+        const char *dot = strrchr(de->d_name, '.');
+        if (dot && strcasecmp(dot, ".pdf")==0) names[n++] = strdup(de->d_name);
+        if (n>=4096) break;
+    }
+    closedir(dp);
+    qsort(names, n, sizeof(char*), cmp_cstr);
+    dprintf(csd, "OK %d\n", n);
+    for (int i=0;i<n;i++){ dprintf(csd,"NAME %s\n", names[i]); free(names[i]); }
+}
         else if(strncmp(line,"QUIT",4)==0) break;
         else dprintf(csd,"ERR unknown\n");
     }
@@ -151,4 +186,3 @@ int main(void){
     }
     close(sd); return 0;
 }
-
