@@ -1,3 +1,4 @@
+
 // s25client.c — matches your S1 protocol exactly.
 // Commands:
 //   uploadf <f1> [f2] [f3] <dest>
@@ -152,6 +153,25 @@ int main(){
             close(fd);
             fprintf(stderr,"Downloaded %s (%lld bytes)\n",tname,size);
         }
+        /* ---- dispfnames ---- */
+else if (!strncmp(line, "dispfnames ", 11)) {
+    char pth[1024];
+    if (sscanf(line+11, "%1023s", pth) != 1) { usage(); continue; }
+
+    dprintf(sd, "DISPFNAMES %s\n", pth);
+
+    char hdr[256];
+    if (read_line(sd, hdr, sizeof(hdr)) <= 0) { fprintf(stderr,"Disconnected\n"); break; }
+    if (strncmp(hdr, "NAMES ", 6) != 0) { fprintf(stderr, "%s", hdr); continue; }
+
+    int count=0; sscanf(hdr+6, "%d", &count);
+    for (int i=0;i<count;i++){
+        char ln[256];
+        if (read_line(sd, ln, sizeof(ln)) <= 0) break;
+        if (!strncmp(ln,"NAME ",5)) fprintf(stdout, "%s\n", ln+5); // print name only
+        else                          fprintf(stdout, "%s", ln);    // any ERR line
+    }
+}
 
         else usage();
         next: ;
@@ -159,4 +179,3 @@ int main(){
 
     close(sd); return 0;
 }
-
