@@ -278,6 +278,58 @@ static long long fetch_tar_from_aux(int port, const char *ext, int out_fd){
     close(sd);
     return size;
 }
+/*---------------------------------------------------------------*/
+// list local files under S1_ROOT/dest with a given extension; returns sorted array
+static int s1_list_local_by_ext(const char *dest, const char *ext, char ***out_names){
+    char dir[2048]; join_path(dir, sizeof(dir), S1_ROOT, dest);
+    DIR *dp = opendir(dir);
+    if(!dp){ *out_names=NULL; return 0; }
+
+    int n=0, cap=32;
+    char **names = malloc(cap * sizeof(char*));
+    struct dirent *de;
+    while((de=readdir(dp))){
+        if(de->d_name[0]=='.') continue;
+        const char *dot = strrchr(de->d_name,'.');
+        if(dot && strcasecmp(dot, ext)==0){
+            if(n==cap){ cap*=2; names = realloc(names, cap*sizeof(char*)); }
+            names[n++] = strdup(de->d_name);
+        }
+    }
+    closedir(dp);
+
+    int cmpstr(const void *a, const void *b){ return strcmp(*(char *const*)a, *(char *const*)b); }
+    if(n>0) qsort(names, n, sizeof(char*), cmpstr);
+    *out_names = names;
+    return n;
+}
+
+// ask an auxiliary server to LIST; returns count and malloc'd array (sorted by server)
+static int s1_request_list_from_aux(int port, const char *dest, char ***out_names){
+    int sd = connect_local_port(port);
+    if(sd < 0){ *out_names=NULL; return -1; }
+
+    dprintf(sd, "LIST %s\n", dest);
+
+    char hdr[256];
+    if(read_line(sd, hdr, sizeof(hdr)) <= 0 || strncmp(hdr,"OK ",3)!=0){ close(sd); *out_names=NULL; return -2; }
+
+    int count=0; sscanf(hdr+3, "%d", &count);
+    if(count <= 0){ close(sd); *out_names=NULL; return 0; }
+
+    char **names = malloc((size_t)count * sizeof(char*));
+    for(int i=0;i<count;i++){
+        char ln[512];
+        if(read_line(sd, ln, sizeof(ln)) <= 0 || strncmp(ln,"NAME ",5)!=0){
+            count = i; break;
+        }
+        char nm[256]; sscanf(ln+5, "%255s", nm);
+        names[i] = strdup(nm);
+    }
+    close(sd);
+    *out_names = names;
+    return count;
+}
 
 /* ---------- per-client handler (prcclient) ---------- */
 static void prcclient(int csd){
@@ -427,6 +479,40 @@ static void prcclient(int csd){
                 close(fd); unlink(tmp);
             }
         }
+         /* ===== DISPFNAMES =====
+   Syntax from client: DISPFNAMES <~S1/path>
+   Response: NAMES <total>\n followed by 'NAME <file>\n' lines
+         */
+else if (strncmp(line, "DISPFNAMES ", 11) == 0) {
+    char path[1024];
+    if (sscanf(line+11, "%1023s", path) != 1) { dprintf(csd,"ERR bad DISPFNAMES\n"); continue; }
+
+    // Normalize ~S1, supporting both "~S1" and "~S1/<subdir>"
+    if (strncmp(path, "~S1", 3) == 0) {
+        if (path[3] == '/') {                     // "~S1/<something>"
+            memmove(path, path+3, strlen(path+3)+1);   // becomes "/<something>"
+        } else if (path[3] == '\0') {             // exactly "~S1"
+            strcpy(path, "/");                    // treat as root
+        }
+    }
+    if (strstr(path, "..")) { dprintf(csd,"ERR badpath\n"); continue; }
+
+
+    // gather per-type (order must be: .c, .pdf, .txt, .zip)
+    char **cN=NULL, **pdfN=NULL, **txtN=NULL, **zipN=NULL;
+    int nC   = s1_list_local_by_ext(path, ".c",   &cN);
+    int nPDF = s1_request_list_from_aux(S2_PORT, path, &pdfN); if(nPDF<0) nPDF=0;
+    int nTXT = s1_request_list_from_aux(S3_PORT, path, &txtN); if(nTXT<0) nTXT=0;
+    int nZIP = s1_request_list_from_aux(S4_PORT, path, &zipN); if(nZIP<0) nZIP=0;
+
+    int total = nC + nPDF + nTXT + nZIP;
+    dprintf(csd, "NAMES %d\n", total);
+
+    for(int i=0;i<nC;i++){  dprintf(csd,"NAME %s\n", cN[i]);  free(cN[i]); }   free(cN);
+    for(int i=0;i<nPDF;i++){dprintf(csd,"NAME %s\n", pdfN[i]); free(pdfN[i]); } free(pdfN);
+    for(int i=0;i<nTXT;i++){dprintf(csd,"NAME %s\n", txtN[i]); free(txtN[i]); } free(txtN);
+    for(int i=0;i<nZIP;i++){dprintf(csd,"NAME %s\n", zipN[i]); free(zipN[i]); } free(zipN);
+}
 
         /* ===== QUIT / unknown ===== */
         else if(strncmp(line,"QUIT",4)==0){ break; }
@@ -468,4 +554,3 @@ int main(void){
     close(sd);
     return 0;
 }
-
