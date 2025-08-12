@@ -1,7 +1,9 @@
-
 // S4.c — ZIP backend for S1: supports STORE, FETCH, DELETE (no TARALL)
 // Build: gcc S4.c -o S4
 // Run:   ./S4
+#include <dirent.h>
+#include <sys/types.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +23,11 @@
 
 // >>> adjust if needed
 static const char *ROOT = "/home/azeem7/S4";
+static int cmp_cstr(const void *a, const void *b){
+    const char *const *sa = (const char *const *)a;
+    const char *const *sb = (const char *const *)b;
+    return strcmp(*sa, *sb);
+}
 
 static ssize_t write_n(int fd, const void *buf, size_t n){
     size_t off=0; const char *p=(const char*)buf;
@@ -101,6 +108,34 @@ static void handle_client(int csd){
             char full[3072]; snprintf(full,sizeof(full),"%s/%s",dpath,fname);
             int rc=unlink(full); dprintf(csd, (rc==0)?"OK\n":"ERR\n");
         }
+         /* ---- LIST <dest> : return sorted names with this server's extension ---- */
+
+else if (strncmp(line, "LIST ", 5) == 0) {
+    char dest[1024];
+    if (sscanf(line+5, "%1023s", dest) != 1) { dprintf(csd,"ERR bad LIST\n"); continue; }
+    if (strstr(dest, "..")) { dprintf(csd,"ERR badpath\n"); continue; }
+
+    char dir[2048];
+    if (dest[0]=='/') snprintf(dir, sizeof(dir), "%s%s", ROOT, dest);
+    else              snprintf(dir, sizeof(dir), "%s/%s", ROOT, dest);
+
+    DIR *dp = opendir(dir);
+    if (!dp) { dprintf(csd,"OK 0\n"); continue; }
+
+    char *names[4096]; int n=0;
+    struct dirent *de;
+    while ((de=readdir(dp))) {
+        if (de->d_name[0]=='.') continue;
+        const char *dot = strrchr(de->d_name, '.');
+        if (dot && strcasecmp(dot, ".zip")==0) names[n++] = strdup(de->d_name);
+        if (n>=4096) break;
+    }
+    closedir(dp);
+    qsort(names, n, sizeof(char*), cmp_cstr);
+    dprintf(csd, "OK %d\n", n);
+    for (int i=0;i<n;i++){ dprintf(csd,"NAME %s\n", names[i]); free(names[i]); }
+}
+
         else if(strncmp(line,"QUIT",4)==0) break;
         else dprintf(csd,"ERR unknown\n");
     }
