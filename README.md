@@ -21,3 +21,24 @@ A simple distributed file storage system with one main server (**S1**) and three
 
 ## 📂 Project Structure
 
+---
+
+## ⚙️ Requirements
+
+- **OS:** Linux or macOS (POSIX-compliant)
+- **Compiler:** GCC or Clang
+- **Tools:** `tar`, `find`, `mkdir`
+- Loopback network (`127.0.0.1`) enabled
+
+---
+
+## 🛠 Build Instructions
+
+```bash
+gcc S1.c -o S1
+gcc S2.c -o S2
+gcc S3.c -o S3
+gcc S4.c -o S4
+gcc client.c -o client
+
+
