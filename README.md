@@ -1,6 +1,6 @@
 # Distributed File Store (DFS) — COMP-8567 Project
 
-A simple distributed file storage system with one main server (**S1**) and three auxiliary servers (**S2**, **S3**, **S4**) for storing specific file types. Includes a lightweight command-line client for uploading, downloading, deleting, listing, and archiving files..
+A simple distributed file storage system with one main server (**S1**) and three auxiliary servers (**S2**, **S3**, **S4**) for storing specific file types. Includes a lightweight command-line client for uploading, downloading, deleting, listing, and archiving files.
 
 ---
 
